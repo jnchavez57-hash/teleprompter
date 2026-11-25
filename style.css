@@ -107,3 +107,4 @@ select, input[type=text], input:not([type]), textarea {
 .fs-help li { margin: 8px 0; }
 .fs-help .primary { width: 100%; margin-top: 16px; }
 .share-ico { display: inline-block; border: 1px solid var(--line); border-radius: 6px; padding: 0 6px; }
+.mono { font-family: ui-monospace, Menlo, monospace; font-size: 12px; word-break: break-word; }

@@ -36,10 +36,10 @@ const ICADE_RELEASE = new Set(['e', 'c', 'z', 'q', 't', 'r', 'f', 'n', 'm', 'p',
 const DEFAULT_MAP = {
   toggle:  ['k:space', 'k:enter', 'k:mediaplaypause', 'k:y', 'k:h', 'k:u', 'k:j', 'k:i', 'k:k', 'k:o', 'k:l',
             'm:play', 'm:pause', 'g:b0', 'g:b1', 'g:b2', 'g:b3'],
-  faster:  ['k:arrowup', 'k:w', 'k:+', 'm:seekforward', 'g:up'],
-  slower:  ['k:arrowdown', 'k:x', 'k:-', 'm:seekbackward', 'g:down'],
-  back:    ['k:arrowleft', 'k:a', 'k:pageup', 'k:mediatrackprevious', 'm:previoustrack', 'g:left'],
-  forward: ['k:arrowright', 'k:d', 'k:pagedown', 'k:mediatracknext', 'm:nexttrack', 'g:right'],
+  faster:  ['k:arrowup', 'k:w', 'k:+', 'm:seekforward', 'g:up', 'g:a3-'],
+  slower:  ['k:arrowdown', 'k:x', 'k:-', 'm:seekbackward', 'g:down', 'g:a3+'],
+  back:    ['k:arrowleft', 'k:a', 'k:pageup', 'k:mediatrackprevious', 'm:previoustrack', 'g:left', 'g:a2-'],
+  forward: ['k:arrowright', 'k:d', 'k:pagedown', 'k:mediatracknext', 'm:nexttrack', 'g:right', 'g:a2+'],
   bigger:  ['g:b5'],
   smaller: ['g:b4'],
   restart: ['k:home'],
@@ -49,6 +49,13 @@ const DEFAULT_MAP = {
 
 let map = LS.get('map', null) || structuredClone(DEFAULT_MAP);
 for (const a of Object.keys(ACTIONS)) if (!Array.isArray(map[a])) map[a] = [];
+// Mapas guardados antes de esta versión: agrega los ejes de respaldo si nadie los usa.
+if (!LS.get('mapV2', false)) {
+  for (const [a, c] of [['faster', 'g:a3-'], ['slower', 'g:a3+'], ['back', 'g:a2-'], ['forward', 'g:a2+']]) {
+    if (!Object.values(map).some((codes) => codes.includes(c))) map[a].push(c);
+  }
+  LS.set('map', map); LS.set('mapV2', true);
+}
 
 function actionFor(code) {
   for (const [a, codes] of Object.entries(map)) if (codes.includes(code)) return a;
@@ -71,6 +78,7 @@ function codeLabel(code) {
   }
   if (t === 'g') {
     const names = { up: 'Gamepad ↑', down: 'Gamepad ↓', left: 'Gamepad ←', right: 'Gamepad →' };
+    if (/^a\d+[+-]$/.test(v)) return `Gamepad eje ${v.slice(1, -1)} ${v.endsWith('+') ? '+' : '−'}`;
     return names[v] || `Gamepad botón ${v.replace('b', '')}`;
   }
   return code;
@@ -449,26 +457,40 @@ document.addEventListener('pointerdown', () => startMedia(), { once: true });
 // Con [flecha abajo + encendido] el MOCUTE-052F se conecta como "Xbox Wireless Controller":
 // A=b0, B=b1, X=b2, Y=b3, LB=b4, RB=b5, cruceta b12–b15, joystick izquierdo = axes 0/1.
 const padPrev = {}, padHeld = {};
+const AXIS_ON = 0.45;
+let padInfoAt = 0;
 function pollGamepads() {
   if (!navigator.getGamepads) return;
+  const t = performance.now();
+  let info = '';
   for (const gp of navigator.getGamepads()) {
     if (!gp) continue;
-    const prev = padPrev[gp.index] || {};
     const now = {};
     gp.buttons.forEach((b, i) => { now['b' + i] = b.pressed || b.value > 0.5; });
-    const ax = gp.axes[0] || 0, ay = gp.axes[1] || 0;
-    now.up = now.b12 || ay < -0.6; now.down = now.b13 || ay > 0.6;
-    now.left = now.b14 || ax < -0.6; now.right = now.b15 || ax > 0.6;
-    const t = performance.now();
+    // Todos los ejes: algunos controles mandan el joystick como eje 2/3 o con valores bajos.
+    gp.axes.forEach((v, i) => { now['a' + i + '+'] = v > AXIS_ON; now['a' + i + '-'] = v < -AXIS_ON; });
+    now.up = now.b12 || now['a1-']; now.down = now.b13 || now['a1+'];
+    now.left = now.b14 || now['a0-']; now.right = now.b15 || now['a0+'];
+    const prev = padPrev[gp.index];
+    padPrev[gp.index] = now;
+    if (!prev) continue; // primera lectura: solo toma la posición de reposo, no dispara nada
     const held = padHeld[gp.index] || (padHeld[gp.index] = {});
     for (const [k, on] of Object.entries(now)) {
-      if (['b12', 'b13', 'b14', 'b15'].includes(k)) continue; // ya se reportan como up/down/left/right
+      // Ya se reportan como up/down/left/right.
+      if (['b12', 'b13', 'b14', 'b15', 'a0+', 'a0-', 'a1+', 'a1-'].includes(k)) continue;
       if (on && !prev[k]) { handleInput('g:' + k); held[k] = t + 450; }
       // Mantener presionado repite (velocidad, avanzar/retroceder).
       else if (on && held[k] && t >= held[k]) { handleInput('g:' + k, { repeat: true }); held[k] = t + 160; }
       else if (!on) delete held[k];
     }
-    padPrev[gp.index] = now;
+    const pressed = gp.buttons.map((b, i) => (b.pressed || b.value > 0.5 ? i : null)).filter((i) => i !== null);
+    info = `${gp.id.slice(0, 40)} · ejes: ${gp.axes.map((v) => v.toFixed(2)).join('  ')} · botones: ${pressed.join(', ') || '—'}`;
+  }
+  // Diagnóstico en vivo (inicio y ajustes), unas 10 veces por segundo.
+  if (!inPrompter && t - padInfoAt > 100) {
+    padInfoAt = t;
+    const txt = info || 'Ningún control de juego detectado (presiona un botón del control)';
+    for (const id of ['padInfo', 'padInfo2']) { const el = $(id); if (el && el.textContent !== txt) el.textContent = txt; }
   }
 }
 window.addEventListener('gamepadconnected', (e) => showLast('Gamepad conectado: ' + e.gamepad.id, false, true));
