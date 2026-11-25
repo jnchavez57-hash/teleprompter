@@ -108,3 +108,6 @@ select, input[type=text], input:not([type]), textarea {
 .fs-help .primary { width: 100%; margin-top: 16px; }
 .share-ico { display: inline-block; border: 1px solid var(--line); border-radius: 6px; padding: 0 6px; }
 .mono { font-family: ui-monospace, Menlo, monospace; font-size: 12px; word-break: break-word; }
+.rawbox summary { font-size: 13px; color: var(--muted); cursor: pointer; }
+.rawbox pre { margin: 6px 0 0; padding: 8px 10px; background: #0f0f12; border: 1px solid var(--line); border-radius: 10px;
+  min-height: 3.5em; max-height: 16em; overflow: auto; white-space: pre-wrap; color: #cfcfd6; }

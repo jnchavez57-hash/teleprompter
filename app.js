@@ -36,8 +36,8 @@ const ICADE_PRESS = { w: 'Joystick ↑', d: 'Joystick →', x: 'Joystick ↓', a
 const ICADE_RELEASE = new Set(['e', 'c', 'z', 'q', 't', 'r', 'f', 'n', 'm', 'p', 'g', 'v']);
 
 // Todo lo que pueda mandar el joystick hacia arriba / abajo (teclado, multimedia, gamepad).
-const BOOST_CODES = ['k:arrowup', 'k:w', 'm:seekforward', 'g:up', 'g:a3-', 'k:audiovolumeup', 'k:volumeup'];
-const UNBOOST_CODES = ['k:arrowdown', 'k:x', 'm:seekbackward', 'g:down', 'g:a3+', 'k:audiovolumedown', 'k:volumedown'];
+const BOOST_CODES = ['k:arrowup', 'k:w', 'm:seekforward', 'g:up', 'g:a3-', 'k:audiovolumeup', 'k:volumeup', 'w:up', 'k:pageup', 'm:previousslide'];
+const UNBOOST_CODES = ['k:arrowdown', 'k:x', 'm:seekbackward', 'g:down', 'g:a3+', 'k:audiovolumedown', 'k:volumedown', 'w:down', 'k:pagedown', 'm:nextslide'];
 
 const DEFAULT_MAP = {
   toggle:  ['k:space', 'k:enter', 'k:mediaplaypause', 'k:y', 'k:h', 'k:u', 'k:j', 'k:i', 'k:k', 'k:o', 'k:l',
@@ -46,8 +46,8 @@ const DEFAULT_MAP = {
   unboost: UNBOOST_CODES.slice(),
   faster:  ['k:+'],
   slower:  ['k:-'],
-  back:    ['k:arrowleft', 'k:a', 'k:pageup', 'k:mediatrackprevious', 'm:previoustrack', 'g:left', 'g:a2-'],
-  forward: ['k:arrowright', 'k:d', 'k:pagedown', 'k:mediatracknext', 'm:nexttrack', 'g:right', 'g:a2+'],
+  back:    ['k:arrowleft', 'k:a', 'k:mediatrackprevious', 'm:previoustrack', 'g:left', 'g:a2-'],
+  forward: ['k:arrowright', 'k:d', 'k:mediatracknext', 'm:nexttrack', 'g:right', 'g:a2+'],
   bigger:  ['g:b5'],
   smaller: ['g:b4'],
   restart: ['k:home'],
@@ -76,6 +76,21 @@ if (!LS.get('mapV3', false)) {
   }
   LS.set('map', map); LS.set('mapV3', true);
 }
+// v4: rueda del mouse, Re/Av Pág y diapositivas también cuentan como joystick arriba/abajo.
+if (!LS.get('mapV4', false)) {
+  for (const [codes, a] of [[BOOST_CODES, 'boost'], [UNBOOST_CODES, 'unboost']]) {
+    for (const c of codes) {
+      if (!Object.values(map).some((v) => v.includes(c))) { map[a].push(c); continue; }
+      // Re/Av Pág venían en retroceder/avanzar de fábrica: pásalas al joystick arriba/abajo.
+      for (const from of ['back', 'forward']) {
+        if ((c === 'k:pageup' || c === 'k:pagedown') && map[from].includes(c)) {
+          map[from] = map[from].filter((v) => v !== c); map[a].push(c);
+        }
+      }
+    }
+  }
+  LS.set('map', map); LS.set('mapV4', true);
+}
 
 function actionFor(code) {
   for (const [a, codes] of Object.entries(map)) if (codes.includes(code)) return a;
@@ -93,9 +108,11 @@ function codeLabel(code) {
   }
   if (t === 'm') {
     const names = { play: 'Multimedia ▶ Play', pause: 'Multimedia ❚❚ Pausa', nexttrack: 'Multimedia ⏭ Siguiente',
-      previoustrack: 'Multimedia ⏮ Anterior', seekforward: 'Multimedia ⏩', seekbackward: 'Multimedia ⏪', stop: 'Multimedia ⏹' };
+      previoustrack: 'Multimedia ⏮ Anterior', seekforward: 'Multimedia ⏩', seekbackward: 'Multimedia ⏪', stop: 'Multimedia ⏹',
+      previousslide: 'Diapositiva anterior', nextslide: 'Diapositiva siguiente', seekto: 'Multimedia (mover a)' };
     return names[v] || 'Multimedia ' + v;
   }
+  if (t === 'w') return v === 'up' ? 'Rueda del mouse ↑' : v === 'down' ? 'Rueda del mouse ↓' : 'Rueda ' + v;
   if (t === 'g') {
     const names = { up: 'Gamepad ↑', down: 'Gamepad ↓', left: 'Gamepad ←', right: 'Gamepad →' };
     if (/^a\d+[+-]$/.test(v)) return `Gamepad eje ${v.slice(1, -1)} ${v.endsWith('+') ? '+' : '−'}`;
@@ -448,6 +465,7 @@ function handleInput(code, { repeat = false, event = null } = {}) {
 }
 
 document.addEventListener('keydown', (e) => {
+  logRaw(`tecla ↓ key="${e.key}" code="${e.code}" n=${e.keyCode}${e.repeat ? ' (repite)' : ''}`);
   if (isTyping() && !learning) { showLast(keyCode(e)); return; }
   if (e.metaKey || e.ctrlKey) return;
   const code = keyCode(e);
@@ -455,6 +473,49 @@ document.addEventListener('keydown', (e) => {
   if (ICADE_RELEASE.has(k) && !actionFor(code)) { showLast(code, true); e.preventDefault(); return; }
   handleInput(code, { repeat: e.repeat, event: e });
 });
+
+document.addEventListener('keyup', (e) => logRaw(`tecla ↑ key="${e.key}" code="${e.code}" n=${e.keyCode}`));
+
+/* ---------------- Entrada: rueda del mouse ---------------- */
+// Algunos controles mandan el joystick arriba/abajo como rueda de mouse. Un giro produce
+// muchos eventos seguidos: se cuenta como un solo "empujón" y se repite si se mantiene.
+let wheelAcc = 0, wheelLast = 0, wheelFiredAt = 0;
+window.addEventListener('wheel', (e) => {
+  const t = performance.now();
+  logRaw(`rueda dy=${Math.round(e.deltaY)} dx=${Math.round(e.deltaX)}`);
+  if (inPrompter) e.preventDefault();
+  if (t - wheelLast > 350) wheelAcc = 0;
+  wheelLast = t;
+  wheelAcc += e.deltaY;
+  if (Math.abs(wheelAcc) >= 4 && t - wheelFiredAt > 450) {
+    wheelFiredAt = t;
+    const code = wheelAcc < 0 ? 'w:up' : 'w:down';
+    wheelAcc = 0;
+    handleInput(code);
+  }
+}, { passive: false });
+
+/* ---------------- Diagnóstico: registro de todo lo que llega ---------------- */
+const rawLines = [];
+let rawTimer = null;
+function logRaw(txt) {
+  const d = new Date();
+  rawLines.unshift(`${d.toLocaleTimeString('es-MX', { hour12: false })}.${String(d.getMilliseconds()).padStart(3, '0').slice(0, 1)}  ${txt}`);
+  rawLines.length = Math.min(rawLines.length, 10);
+  if (!rawTimer) rawTimer = setTimeout(() => {
+    rawTimer = null;
+    const el = $('rawLog'); if (el) el.textContent = rawLines.join('\n');
+  }, 80);
+}
+let mouseLogAt = 0;
+window.addEventListener('pointermove', (e) => {
+  if (e.pointerType !== 'mouse') return;
+  const t = performance.now(); if (t - mouseLogAt < 400) return; mouseLogAt = t;
+  logRaw('mouse se movió');
+}, { passive: true });
+window.addEventListener('blur', () => logRaw('la app perdió el foco'));
+window.addEventListener('focus', () => logRaw('la app recuperó el foco'));
+document.addEventListener('visibilitychange', () => logRaw('visible: ' + document.visibilityState));
 
 /* ---------------- Entrada: botones multimedia ---------------- */
 // iOS solo entrega play/pausa/siguiente/anterior a una página que está reproduciendo audio,
@@ -478,10 +539,17 @@ function startMedia() {
     silentAudio.loop = true;
     silentAudio.setAttribute('playsinline', '');
     silentAudio.addEventListener('pause', () => { if (settings.media) setTimeout(() => silentAudio.play().catch(() => {}), 50); });
-    const acts = ['play', 'pause', 'nexttrack', 'previoustrack', 'seekforward', 'seekbackward', 'stop'];
+    const acts = ['play', 'pause', 'nexttrack', 'previoustrack', 'seekforward', 'seekbackward', 'stop', 'seekto',
+      'previousslide', 'nextslide', 'skipad'];
     for (const a of acts) {
-      try { navigator.mediaSession.setActionHandler(a, () => { handleInput('m:' + a); silentAudio.play().catch(() => {}); }); } catch {}
+      try {
+        navigator.mediaSession.setActionHandler(a, (d) => {
+          logRaw('multimedia: ' + a + (d && d.seekOffset ? ' ' + d.seekOffset + 's' : '') + (d && d.seekTime != null ? ' t=' + d.seekTime : ''));
+          handleInput('m:' + a); silentAudio.play().catch(() => {});
+        });
+      } catch {}
     }
+    silentAudio.addEventListener('volumechange', () => logRaw('volumen del audio cambió'));
   }
   try { navigator.mediaSession.metadata = new MediaMetadata({ title: current()?.title || 'Teleprompter', artist: 'Teleprompter' }); } catch {}
   navigator.mediaSession.playbackState = 'playing';
@@ -516,7 +584,7 @@ function pollGamepads() {
     for (const [k, on] of Object.entries(now)) {
       // Ya se reportan como up/down/left/right.
       if (['b12', 'b13', 'b14', 'b15', 'a0+', 'a0-', 'a1+', 'a1-'].includes(k)) continue;
-      if (on && !prev[k]) { handleInput('g:' + k); held[k] = t + 450; }
+      if (on && !prev[k]) { logRaw('gamepad: ' + k); handleInput('g:' + k); held[k] = t + 450; }
       // Mantener presionado repite (velocidad, avanzar/retroceder).
       else if (on && held[k] && t >= held[k]) { handleInput('g:' + k, { repeat: true }); held[k] = t + 160; }
       else if (!on) delete held[k];
