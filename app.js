@@ -302,7 +302,7 @@ function jump(lines) {
 }
 
 function runAction(a) {
-  if (!$('sheet').classList.contains('hidden') || !$('learn').classList.contains('hidden')) return false; // ajustes abiertos
+  if (['sheet', 'learn', 'fsHelp'].some((id) => !$(id).classList.contains('hidden'))) return false; // ajustes abiertos
   if (!inPrompter) {
     // Desde el inicio, el botón de iniciar abre el prompter (útil con el teléfono ya montado).
     if (a === 'toggle' && !isTyping()) { openPrompter(); return true; }
@@ -320,6 +320,7 @@ function runAction(a) {
     case 'mirror': settings.mirrorH = !settings.mirrorH; saveSettings(); syncSettingsUI(); applyLayout(); break;
     case 'exit': closePrompter(); break;
     case 'settings': openSettings(); break;
+    case 'fullscreen': toggleFullscreen(); break;
   }
   return true;
 }
@@ -553,6 +554,36 @@ document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') { if (inPrompter) keepAwake(true); startMedia(); }
 });
 window.addEventListener('resize', () => { if (inPrompter) applyLayout(); });
+
+/* ---------------- Pantalla completa ---------------- */
+// Abierta desde el ícono de inicio ya es pantalla completa. En iPhone, Safari no permite
+// la Fullscreen API para páginas, así que ahí se muestran los pasos para instalarla.
+const isStandalone = () => navigator.standalone === true || matchMedia('(display-mode: standalone)').matches ||
+  matchMedia('(display-mode: fullscreen)').matches;
+const fsElement = () => document.fullscreenElement || document.webkitFullscreenElement;
+function updateFsButtons() {
+  const hide = isStandalone();
+  document.querySelectorAll('.fs-btn').forEach((b) => b.classList.toggle('hidden', hide));
+}
+async function toggleFullscreen() {
+  if (fsElement()) { (document.exitFullscreen || document.webkitExitFullscreen).call(document); return; }
+  const el = document.documentElement;
+  const req = el.requestFullscreen || el.webkitRequestFullscreen;
+  if (req) {
+    try { await req.call(el); return; } catch {}
+  }
+  wasPlaying = playing; playing = false; updateHud();
+  $('fsHelp').classList.remove('hidden');
+}
+$('btnFsHelpClose').addEventListener('click', () => {
+  $('fsHelp').classList.add('hidden');
+  if (inPrompter && wasPlaying) togglePlay();
+});
+document.querySelectorAll('[data-fs]').forEach((b) => b.addEventListener('click', toggleFullscreen));
+for (const ev of ['fullscreenchange', 'webkitfullscreenchange']) {
+  document.addEventListener(ev, () => setTimeout(() => { if (inPrompter) applyLayout(); }, 100));
+}
+updateFsButtons();
 
 /* ---------------- Arranque ---------------- */
 $('btnStart').addEventListener('click', () => { startMedia(); openPrompter(); });

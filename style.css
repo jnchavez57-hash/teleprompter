@@ -71,10 +71,10 @@ select, input[type=text], input:not([type]), textarea {
 #countdown.show { display: flex; }
 
 #toolbar { position: absolute; left: 50%; bottom: calc(env(safe-area-inset-bottom) + 14px); transform: translateX(-50%);
-  display: flex; gap: 8px; background: rgba(23,23,27,.92); border: 1px solid var(--line); padding: 8px; border-radius: 18px; z-index: 10;
+  display: flex; gap: 6px; background: rgba(23,23,27,.92); border: 1px solid var(--line); padding: 8px; border-radius: 18px; z-index: 10;
   transition: opacity .3s; }
 #toolbar.faded { opacity: 0; pointer-events: none; }
-#toolbar button { min-width: 48px; height: 48px; font-size: 20px; padding: 0 12px; }
+#toolbar button { min-width: 42px; height: 48px; font-size: 20px; padding: 0 8px; }
 
 /* ---------- Hojas ---------- */
 .sheet { position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 50; display: flex; justify-content: center; align-items: flex-end; }
@@ -100,3 +100,10 @@ select, input[type=text], input:not([type]), textarea {
 #learn { align-items: center; }
 .learn-box { background: var(--card); border: 1px solid var(--accent); border-radius: 20px; padding: 28px; text-align: center; width: min(90vw, 420px); }
 .learn-box h2 { color: var(--accent); margin: 10px 0; font-size: 26px; }
+
+.fs-help { text-align: left; }
+.fs-help h2 { text-align: center; }
+.fs-help ol { padding-left: 22px; line-height: 1.5; }
+.fs-help li { margin: 8px 0; }
+.fs-help .primary { width: 100%; margin-top: 16px; }
+.share-ico { display: inline-block; border: 1px solid var(--line); border-radius: 6px; padding: 0 6px; }
