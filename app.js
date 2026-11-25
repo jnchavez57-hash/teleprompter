@@ -454,7 +454,7 @@ function stopMedia() { if (silentAudio) silentAudio.pause(); }
 document.addEventListener('pointerdown', () => startMedia(), { once: true });
 
 /* ---------------- Entrada: gamepad ---------------- */
-// Con [flecha abajo + encendido] el MOCUTE-052F se conecta como "Xbox Wireless Controller":
+// Mapeo estándar de la Gamepad API (si iOS reconoce el control como control de juego):
 // A=b0, B=b1, X=b2, Y=b3, LB=b4, RB=b5, cruceta b12–b15, joystick izquierdo = axes 0/1.
 const padPrev = {}, padHeld = {};
 const AXIS_ON = 0.45;
