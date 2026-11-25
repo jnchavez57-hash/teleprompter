@@ -123,6 +123,7 @@ const FMT = {
 function bindSettings() {
   for (const k of Object.keys(FMT)) {
     const el = $('s_' + k);
+    if (!el) continue; // página de otra versión aún en caché
     el.value = settings[k];
     $('o_' + k).textContent = FMT[k](settings[k]);
     el.addEventListener('input', () => {
@@ -133,6 +134,7 @@ function bindSettings() {
   }
   for (const k of ['align', 'countdown', 'downMode']) {
     const el = $('s_' + k);
+    if (!el) continue;
     el.value = String(settings[k]);
     el.addEventListener('change', () => {
       settings[k] = k === 'countdown' ? parseInt(el.value, 10) : el.value;
@@ -141,6 +143,7 @@ function bindSettings() {
   }
   for (const k of ['mirrorH', 'mirrorV', 'showGuide', 'media']) {
     const el = $('s_' + k);
+    if (!el) continue;
     el.checked = settings[k];
     el.addEventListener('change', () => {
       settings[k] = el.checked; saveSettings(); applyLayout();
@@ -524,7 +527,7 @@ function pollGamepads() {
   // Diagnóstico en vivo (inicio y ajustes), unas 10 veces por segundo.
   if (!inPrompter && t - padInfoAt > 100) {
     padInfoAt = t;
-    const txt = info || 'Ningún control de juego detectado (presiona un botón del control)';
+    const txt = info;
     for (const id of ['padInfo', 'padInfo2']) { const el = $(id); if (el && el.textContent !== txt) el.textContent = txt; }
   }
 }
