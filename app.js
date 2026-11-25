@@ -15,8 +15,10 @@ const LS = {
 /* ---------------- Acciones y botones ---------------- */
 const ACTIONS = {
   toggle:  'Iniciar / Pausar',
-  faster:  'Más rápido',
-  slower:  'Más lento',
+  boost:   'Joystick arriba: acelerar ×1.25',
+  unboost: 'Joystick abajo: velocidad normal o retroceder',
+  faster:  'Más rápido (+0.5)',
+  slower:  'Más lento (−0.5)',
   back:    'Retroceder',
   forward: 'Avanzar',
   bigger:  'Letra más grande',
@@ -26,18 +28,24 @@ const ACTIONS = {
   exit:    'Salir del prompter',
 };
 // Acciones que no deben repetirse si se mantiene presionado el botón.
-const NO_REPEAT = new Set(['toggle', 'restart', 'mirror', 'exit']);
+const NO_REPEAT = new Set(['toggle', 'boost', 'restart', 'mirror', 'exit']);
 
 // iCade (modo GAME del MOCUTE): cada botón manda una letra al presionar y otra al soltar.
 const ICADE_PRESS = { w: 'Joystick ↑', d: 'Joystick →', x: 'Joystick ↓', a: 'Joystick ←',
   y: 'Botón 1', h: 'Botón 2', u: 'Botón 3', j: 'Botón 4', i: 'Botón 5', k: 'Botón 6', o: 'Botón 7', l: 'Botón 8' };
 const ICADE_RELEASE = new Set(['e', 'c', 'z', 'q', 't', 'r', 'f', 'n', 'm', 'p', 'g', 'v']);
 
+// Todo lo que pueda mandar el joystick hacia arriba / abajo (teclado, multimedia, gamepad).
+const BOOST_CODES = ['k:arrowup', 'k:w', 'm:seekforward', 'g:up', 'g:a3-', 'k:audiovolumeup', 'k:volumeup'];
+const UNBOOST_CODES = ['k:arrowdown', 'k:x', 'm:seekbackward', 'g:down', 'g:a3+', 'k:audiovolumedown', 'k:volumedown'];
+
 const DEFAULT_MAP = {
   toggle:  ['k:space', 'k:enter', 'k:mediaplaypause', 'k:y', 'k:h', 'k:u', 'k:j', 'k:i', 'k:k', 'k:o', 'k:l',
             'm:play', 'm:pause', 'g:b0', 'g:b1', 'g:b2', 'g:b3'],
-  faster:  ['k:arrowup', 'k:w', 'k:+', 'm:seekforward', 'g:up', 'g:a3-'],
-  slower:  ['k:arrowdown', 'k:x', 'k:-', 'm:seekbackward', 'g:down', 'g:a3+'],
+  boost:   BOOST_CODES.slice(),
+  unboost: UNBOOST_CODES.slice(),
+  faster:  ['k:+'],
+  slower:  ['k:-'],
   back:    ['k:arrowleft', 'k:a', 'k:pageup', 'k:mediatrackprevious', 'm:previoustrack', 'g:left', 'g:a2-'],
   forward: ['k:arrowright', 'k:d', 'k:pagedown', 'k:mediatracknext', 'm:nexttrack', 'g:right', 'g:a2+'],
   bigger:  ['g:b5'],
@@ -55,6 +63,18 @@ if (!LS.get('mapV2', false)) {
     if (!Object.values(map).some((codes) => codes.includes(c))) map[a].push(c);
   }
   LS.set('map', map); LS.set('mapV2', true);
+}
+// v3: el joystick arriba/abajo pasa de "más rápido/más lento" a "acelerar ×1.25" y "normal/retroceder".
+if (!LS.get('mapV3', false)) {
+  for (const [codes, a] of [[BOOST_CODES, 'boost'], [UNBOOST_CODES, 'unboost']]) {
+    for (const c of codes) {
+      const owner = Object.keys(map).find((k) => map[k].includes(c));
+      if (owner && owner !== 'faster' && owner !== 'slower') continue; // el usuario lo asignó a otra cosa
+      if (owner) map[owner] = map[owner].filter((v) => v !== c);
+      if (!map[a].includes(c)) map[a].push(c);
+    }
+  }
+  LS.set('map', map); LS.set('mapV3', true);
 }
 
 function actionFor(code) {
@@ -87,7 +107,7 @@ function codeLabel(code) {
 /* ---------------- Ajustes ---------------- */
 const DEFAULT_SETTINGS = {
   speed: 5, fontSize: 48, lineHeight: 1.35, margin: 6, guidePos: 30, align: 'left', countdown: 3,
-  mirrorH: true, mirrorV: false, showGuide: true, media: true,
+  mirrorH: true, mirrorV: false, showGuide: true, media: true, downMode: 'normal',
 };
 let settings = { ...DEFAULT_SETTINGS, ...LS.get('settings', {}) };
 const saveSettings = () => LS.set('settings', settings);
@@ -111,7 +131,7 @@ function bindSettings() {
       saveSettings(); applyLayout();
     });
   }
-  for (const k of ['align', 'countdown']) {
+  for (const k of ['align', 'countdown', 'downMode']) {
     const el = $('s_' + k);
     el.value = String(settings[k]);
     el.addEventListener('change', () => {
@@ -213,7 +233,10 @@ function renderContent() {
 }
 
 const linePx = () => settings.fontSize * settings.lineHeight;
-const speedPx = () => settings.speed * linePx() * 0.1; // velocidad 5 ≈ medio renglón por segundo
+// boost: multiplicador temporal del joystick arriba (×1.25 por empujón); abajo lo regresa a 1.
+let boost = 1;
+const MAX_BOOST = 1.25 ** 5; // ≈ ×3
+const speedPx = () => settings.speed * boost * linePx() * 0.1; // velocidad 5 ≈ medio renglón por segundo
 const guideY = () => stage.clientHeight * settings.guidePos / 100;
 // Termina cuando el último renglón pasó la línea guía.
 const maxPos = () => Math.max(0, content.offsetHeight - stage.clientHeight - guideY() + linePx());
@@ -241,7 +264,7 @@ function draw() {
 function fmtTime(s) { s = Math.max(0, Math.round(s)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; }
 function updateHud() {
   $('hudState').textContent = countdownLeft > 0 ? '…' : playing ? '▶' : '❚❚';
-  $('hudSpeed').textContent = 'Vel ' + settings.speed.toFixed(1);
+  $('hudSpeed').textContent = 'Vel ' + settings.speed.toFixed(1) + (boost > 1.001 ? ' ×' + boost.toFixed(2) : '');
   const remain = (maxPos() - pos) / Math.max(1, speedPx());
   $('hudTime').textContent = `${fmtTime(elapsed)} · faltan ~${fmtTime(remain)}`;
   $('tbToggle').textContent = playing || countdownLeft > 0 ? '❚❚' : '▶';
@@ -268,6 +291,7 @@ function openPrompter() {
   showToolbar();
 }
 function closePrompter() {
+  boost = 1;
   playing = false; countdownLeft = 0; $('countdown').classList.remove('show');
   inPrompter = false;
   $('prompter').classList.add('hidden');
@@ -300,6 +324,15 @@ function changeSpeed(d) {
   settings.speed = Math.min(20, Math.max(0.5, +(settings.speed + d).toFixed(1)));
   saveSettings(); syncSettingsUI(); updateHud(); flash('Velocidad ' + settings.speed.toFixed(1));
 }
+function boostUp() {
+  if (boost * 1.25 > MAX_BOOST + 0.001) { flash('Máximo ×' + boost.toFixed(2)); return; }
+  boost *= 1.25; updateHud(); flash('⏫ ×' + boost.toFixed(2));
+}
+function joystickDown() {
+  if (settings.downMode === 'back') { jump(-2); flash('⏪ Retroceder'); return; }
+  if (boost === 1) { flash('Velocidad normal'); return; }
+  boost = 1; updateHud(); flash('Velocidad normal');
+}
 function changeFont(d) {
   settings.fontSize = Math.min(160, Math.max(24, settings.fontSize + d));
   saveSettings(); syncSettingsUI(); applyLayout(); flash('Letra ' + settings.fontSize);
@@ -318,6 +351,8 @@ function runAction(a) {
   }
   switch (a) {
     case 'toggle': togglePlay(); break;
+    case 'boost': boostUp(); break;
+    case 'unboost': joystickDown(); break;
     case 'faster': changeSpeed(+0.5); break;
     case 'slower': changeSpeed(-0.5); break;
     case 'back': jump(-2); break;
@@ -400,7 +435,7 @@ function handleInput(code, { repeat = false, event = null } = {}) {
   showLast(code);
   if (learning) { finishLearn(code); event?.preventDefault(); return; }
   const a = actionFor(code);
-  if (!a) return;
+  if (!a) { if (inPrompter) flash('Sin acción: ' + codeLabel(code)); return; }
   if (repeat && NO_REPEAT.has(a)) { event?.preventDefault(); return; }
   // Evita dobles disparos (p. ej. tecla + multimedia del mismo botón).
   const now = performance.now();
